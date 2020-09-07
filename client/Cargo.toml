@@ -1,0 +1,35 @@
+[package]
+name = "client"
+version = "0.1.0"
+authors = ["TheRawMeatball <therawmeatball@gmail.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+js-sys = "0.3.44"
+wasm-bindgen = "0.2.67"
+lazy_static = "1.4.0"
+quoridor_core = { git = "https://github.com/TheRawMeatball/quoridor.git" }
+tbmp_core = { git = "https://github.com/TheRawMeatball/tbmp.git" }
+bimap = { version = "0.5.2" }
+
+[dependencies.web-sys]
+version = "0.3.4"
+features = [
+  'CanvasRenderingContext2d',
+  'Document',
+  'Element',
+  'HtmlCanvasElement',
+  'CssStyleDeclaration',
+  'HtmlElement',
+  'Window',
+  'MouseEvent',
+  'console',
+]
+
+[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
+dwarf-debug-info = true
+debug-js-glue = true
+demangle-name-section = true

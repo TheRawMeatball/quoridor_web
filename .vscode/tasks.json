@@ -1,0 +1,16 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Web",
+            "type": "shell",
+            "options": {"cwd": "${workspaceFolder}/client"},
+            "command": "wasm-pack",
+            "args": ["build", "--debug", "--target", "web"],
+            "group": "build",
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+    ]
+}
