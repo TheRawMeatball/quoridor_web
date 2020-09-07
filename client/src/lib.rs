@@ -174,6 +174,10 @@ fn main() -> Option<()> {
                     (Some(_), Some(hpos)) if hpos != pos => Some(pos),
                     _ => None,
                 };
+
+                if game.turn_of() == *side {
+                    //send a move
+                }
             }
             (false, false) => {
                 let _ = Wall {
@@ -181,6 +185,10 @@ fn main() -> Option<()> {
                     orientation: Orientation::Vertical,
                     wall_type: WallType::Simple,
                 };
+
+                if game.turn_of() == *side {
+                    //send a move
+                }
             }
             (horizontal, _vertical) => {
                 let _ = Wall {
@@ -192,6 +200,10 @@ fn main() -> Option<()> {
                     },
                     wall_type: WallType::Single,
                 };
+
+                if game.turn_of() == *side {
+                    //send a move
+                }
             }
         }
 
