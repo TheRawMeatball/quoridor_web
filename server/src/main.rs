@@ -88,15 +88,24 @@ async fn main() {
             },
         );
 
-    let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
+    //let game = warp::path::end().map(|| warp::reply::html(GAME_HTML));
+    let game = path!("game" / String).and(warp::fs::file("./static/game.html")).map(|_, f: warp::fs::File| {
+        eprintln!("sssd");
+        f
+    });
+    //let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
+    let index = warp::path::end().and(warp::fs::file("./static/index.html")).map(|f:warp::fs::File| {
+        f
+    });
 
-    println!("{:?}", std::fs::canonicalize(std::path::PathBuf::from(".")));
+    //println!("{:?}", std::fs::canonicalize(std::path::PathBuf::from("./static")));
 
     let routes = index
+        .or(game)
         .or(new_lobby)
         .or(join)
         .or(path("static")
-            .and(warp::fs::dir("./")
+            .and(warp::fs::dir("./static")
             .map(|f: warp::fs::File| {
                 warp::reply::with_header(f, "name", "value")
             })));
@@ -159,6 +168,27 @@ struct UnimplementedGameType;
 impl warp::reject::Reject for UnimplementedGameType {}
 
 static INDEX_HTML: &str = r#"<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    </head>
+    <body>
+        <div id="divvv" style="scrollbar-width:none;">
+        </div>
+    </body>
+    <style type="text/css">
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            overflow: hidden;
+        }
+    </style>
+    <script type="module" src="static/index.js"></script>
+</html>
+"#;
+
+static GAME_HTML: &str = r#"<!DOCTYPE html>
 <html>
   <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>

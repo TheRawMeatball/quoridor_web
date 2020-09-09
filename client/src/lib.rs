@@ -72,8 +72,7 @@ pub fn start() {
 }
 
 fn main() -> Option<()> {
-    let document = web_sys::window()?.document()?;
-    let body = document.body()?;
+    let document = web_sys::window()?.document()?; 
 
     let canvas = document.create_element("canvas").unwrap();
     let main_div = document.get_element_by_id("divvv").unwrap();
@@ -136,11 +135,11 @@ fn main() -> Option<()> {
     }
     set_colors(colors);
 
-    game.apply_move(&RulebookMove::FreeQuoridor(Move::PlaceWall(Wall {
-        position: Position::from((1, 1)),
-        orientation: Orientation::Vertical,
-        wall_type: WallType::Simple,
-    })));
+    //game.apply_move(&RulebookMove::FreeQuoridor(Move::PlaceWall(Wall {
+    //    position: Position::from((1, 1)),
+    //    orientation: Orientation::Vertical,
+    //    wall_type: WallType::Simple,
+    //})));
 
     let state = State { highlight: None };
     let side = 0;
