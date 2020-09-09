@@ -2,15 +2,27 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build Web",
+            "label": "Build WASM",
             "type": "shell",
             "options": {"cwd": "${workspaceFolder}/client"},
             "command": "wasm-pack",
-            "args": ["build", "--debug", "--target", "web"],
+            "args": ["build", "--debug", "--target", "web", "-d", "${workspaceFolder}/pkg"],
+            "group": "build",
+            "problemMatcher": [
+                "$rustc"
+            ],
+        },
+        {
+            "label": "Build Server",
+            "dependsOn": "Build WASM",
+            "type": "shell",
+            "options": {"cwd": "${workspaceFolder}/server"},
+            "command": "cargo",
+            "args": ["build"],
             "group": "build",
             "problemMatcher": [
                 "$rustc"
             ]
-        },
+        }
     ]
 }

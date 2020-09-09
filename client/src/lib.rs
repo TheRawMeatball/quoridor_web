@@ -1,4 +1,5 @@
 use bimap::BiMap;
+use crossbeam_channel::{Receiver, Sender};
 use quoridor_core::{rulebooks::*, *};
 use std::f64;
 use std::{cell::RefCell, error::Error, rc::Rc};
@@ -75,7 +76,11 @@ fn main() -> Option<()> {
     let body = document.body()?;
 
     let canvas = document.create_element("canvas").unwrap();
-    body.append_child(&canvas).unwrap();
+    let main_div = document.get_element_by_id("divvv").unwrap();
+
+    console::log_1(&"sdasdasd".into());
+
+    main_div.append_child(&canvas).unwrap();
 
     let width = web_sys::window()?.inner_width().ok()?.as_f64()? as u32;
     let height = web_sys::window()?.inner_height().ok()?.as_f64()? as u32;

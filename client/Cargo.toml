@@ -14,6 +14,7 @@ lazy_static = "1.4.0"
 quoridor_core = { git = "https://github.com/TheRawMeatball/quoridor.git" }
 tbmp_core = { git = "https://github.com/TheRawMeatball/tbmp.git" }
 bimap = { version = "0.5.2" }
+crossbeam-channel = "0.4.4"
 
 [dependencies.web-sys]
 version = "0.3.4"

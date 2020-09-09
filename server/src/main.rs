@@ -1,168 +1,180 @@
 // #![deny(warnings)]
 use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::sync::Arc;
+
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
+use tokio::sync::{mpsc, RwLock};
+use warp::Filter;
+use warp::{
+    path,
+    ws::{Message, WebSocket},
+    Rejection,
 };
 
-use futures::{FutureExt, StreamExt};
-use tokio::sync::{mpsc, RwLock};
-use warp::{ws::{Message, WebSocket}, path};
-use warp::Filter;
-
-use quoridor_core::{*, rulebooks::*};
-use tbmp::*;
 use bimap::BiMap;
+use crossbeam_channel::{Receiver, Sender};
+use quoridor_core::{rulebooks::*, *};
 use std::error::Error;
+use tbmp::*;
 
 generate_rulebook! {
     StandardQuoridor,
     FreeQuoridor,
 }
 
-/// Our global unique user id counter.
-static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
-static NEXT_GAME_ID: AtomicUsize = AtomicUsize::new(1);
+type GameFn = Box<dyn Send + Sync + FnMut() -> Result<MoveResult, Box<dyn Error>>>;
+type Lobbies = Arc<RwLock<HashMap<String, (Vec<QAgent>, QGameType, GameFn)>>>;
+type Games = Arc<RwLock<HashMap<String, GameFn>>>;
 
-/// Our state of currently connected users.
-///
-/// - Key is their id
-/// - Value is a sender of `warp::ws::Message`
-type Users = Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<Result<Message, warp::Error>>>>>;
+#[derive(Serialize, Deserialize)]
+struct LobbyRequest {
+    game_type: String,
+    name: String,
+}
 
-/// key is game id, value is a tuple containing the game thread, a vec with all unconnected agents and a vec with ids for all connected players
-type Games = Arc<RwLock<HashMap<usize, (Box<dyn Send + Sync + FnMut() -> Result<MoveResult, Box<dyn Error>>>, Vec<QAgent>, Vec<usize>)>>>;
+macro_rules! warpify {
+    ($x:ident) => {{
+        let c = $x.clone();
+        warp::any().map(move || c.clone())
+    }};
+}
 
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 
-    let users = Users::default();
-    let users = warp::any().map(move || users.clone());
-
     let games = Games::default();
-    let games = warp::any().map(move || games.clone());
 
-    // GET /chat -> websocket upgrade
-    let chat = path!("game" / String)
-        // The `ws()` filter will prepare Websocket handshake...
+    let lobbies = Lobbies::default();
+
+    let new_lobby = warp::post()
+        .and(path!("lobby" / "new"))
+        .and(parse_lobby_request())
+        .and(warpify!(lobbies))
+        .and_then(
+            |(game_type, name): (QGameType, String), lobbies: Lobbies| async move {
+                let (v, t) = game_type.new_game();
+                lobbies.write().await.insert(name, (v, game_type, t));
+                Ok::<_, std::convert::Infallible>(warp::reply())
+            },
+        );
+
+    let join = warp::get()
+        .and(path!("join" / String))
+        .and(warpify!(lobbies))
+        .and(warpify!(games))
         .and(warp::ws())
-        .and(users)
-        .and(games)
-        .map(|game_type: String, ws: warp::ws::Ws, users, games| {
-            // This will call our function if the handshake succeeds.
-            let game_type = match &game_type[..] {
-                "free" => Some(QGameType::FreeQuoridor),
-                "standard" => Some(QGameType::StandardQuoridor),
-                _ => None
-            };
+        .map(
+            |name: String, lobbies: Lobbies, games: Games, socket: warp::ws::Ws| {
+                socket.on_upgrade(|socket| async move {
+                    let mut lobbies = lobbies.write().await;
 
-            ws.on_upgrade(move |socket| user_connected(socket, users, games, game_type))
-        });
+                    let agent = lobbies.get_mut(&name).unwrap().0.pop().unwrap();
 
-    // GET / -> index html
+                    if lobbies.get(&name).unwrap().0.len() == 0 {
+                        let game = lobbies.remove(&name).unwrap();
+                        drop(lobbies);
+                        games.write().await.insert(name.clone(), game.2);
+                    } else {
+                        drop(lobbies);
+                    }
+
+                    match agent {
+                        QAgent::StandardQuoridor(c) => c.host(socket, games, name),
+                        QAgent::FreeQuoridor(c) => c.host(socket, games, name),
+                    }
+                })
+            },
+        );
+
     let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
 
-    let routes = index.or(chat);
+    println!("{:?}", std::fs::canonicalize(std::path::PathBuf::from(".")));
+
+    let routes = index
+        .or(new_lobby)
+        .or(join)
+        .or(path("static")
+            .and(warp::fs::dir("./")
+            .map(|f: warp::fs::File| {
+                warp::reply::with_header(f, "name", "value")
+            })));
 
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn user_connected(ws: WebSocket, users: Users, games: Games, game_type: Option<QGameType>) {
-    // Use a counter to assign a new unique ID for this user.
-    let game_type = if let Some(gt) = game_type { gt } else { return; };
-    
-    let player_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
-    let game_id = NEXT_GAME_ID.fetch_add(1, Ordering::Relaxed);
-    let (agents, thread) = game_type.new_game();
-    
-    eprintln!("new chat user: {}", player_id);
-
-    // Split the socket into a sender and receive of messages.
-    let (user_ws_tx, mut user_ws_rx) = ws.split();
-
-    // Use an unbounded channel to handle buffering and flushing of messages
-    // to the websocket...
-    let (tx, rx) = mpsc::unbounded_channel();
-    tokio::task::spawn(rx.forward(user_ws_tx).map(|result| {
-        if let Err(e) = result {
-            eprintln!("websocket send error: {}", e);
-        }
-    }));
-
-    // Save the sender in our list of connected users.
-    users.write().await.insert(player_id, tx);
-    games.write().await.insert(game_id, (thread, agents,vec![player_id]));
-
-    // Make an extra clone to give to our disconnection handler...
-    let users2 = users.clone();
-    let games2 = games.clone();
-
-    // Every time the user sends a message, broadcast it to
-    // all other users...
-    while let Some(result) = user_ws_rx.next().await {
-        let msg = match result {
-            Ok(msg) => msg,
-            Err(e) => {
-                eprintln!("websocket error(uid={}): {}", player_id, e);
-                break;
-            }
+fn parse_lobby_request() -> impl Filter<Extract = ((QGameType, String),), Error = Rejection> + Copy
+{
+    warp::body::form().and_then(|gt: LobbyRequest| async move {
+        let game_type = match &gt.game_type[..] {
+            "standard" => QGameType::StandardQuoridor,
+            "free" => QGameType::FreeQuoridor,
+            _ => return Err(warp::reject::custom(UnimplementedGameType)),
         };
-        user_message(player_id, game_id, msg, &users, &games).await;
-    }
 
-    // user_ws_rx stream will keep processing as long as the user stays
-    // connected. Once they disconnect, then...
-    user_disconnected(player_id, game_id, &users2, &games2).await;
+        Ok((game_type, gt.name))
+    })
 }
 
-async fn user_message(my_id: usize, game_id: usize, msg: Message, users: &Users, games: &Games) {
-    let msg = msg.as_bytes();
+trait WSHost {
+    fn host(self, socket: WebSocket, games: Games, name: String);
+}
 
-    
+impl<G: Game> WSHost for AgentCore<G> {
+    fn host(self, socket: WebSocket, games: Games, name: String) {
+        let (wstx, mut wsrx) = socket.split();
 
-    /*
-    // Skip any non-Text messages...
-
-    let new_msg = format!("<User#{}>: {}", my_id, msg);
-
-    // New message from this user, send it to everyone else (except same uid)...
-    for (&uid, tx) in users.read().await.iter() {
-        if my_id != uid {
-            if let Err(_disconnected) = tx.send(Ok(Message::text(new_msg.clone()))) {
-                // The tx is disconnected, our `user_disconnected` code
-                // should be happening in another task, nothing more to
-                // do here.
+        let (tx, rx) = mpsc::unbounded_channel();
+        tokio::spawn(rx.forward(wstx));
+        let mc = self.move_channel;
+        let ec = self.event_channel;
+        tokio::spawn(async move {
+            while let Some(result) = wsrx.next().await {
+                match result {
+                    Ok(msg) => {
+                        let buf = msg.as_bytes();
+                        let qmv = bincode::deserialize::<G::Move>(buf).unwrap();
+                        mc.send(qmv).unwrap();
+                        games.write().await.get_mut(&name).unwrap()().unwrap();
+                    }
+                    Err(_) => break,
+                }
             }
-        }
-    }*/
+        });
 
-    games.write().await.get_mut(&game_id).unwrap().0().unwrap();
-}
-
-async fn user_disconnected(player_id: usize, game_id: usize, users: &Users, games: &Games) {
-    eprintln!("good bye user: {}", player_id);
-
-    // Stream closed up, so remove from the user list
-
-    for player in &games.read().await.get(&game_id).unwrap().2 {
-        let mut players = users.write().await;
-        let player_sender = players.get(player).unwrap();
-        if *player != player_id {
-            player_sender.send(Ok(Message::text(""))).ok();
-        }
-        players.remove(&player);
+        tokio::spawn(async move {
+            loop {
+                if let Ok(msg) = ec.try_recv() {
+                    let buf = bincode::serialize(&msg).unwrap();
+                    tx.send(Ok(Message::binary(buf))).unwrap();
+                }
+            }
+        });
     }
-
 }
+
+#[derive(Debug)]
+struct UnimplementedGameType;
+impl warp::reject::Reject for UnimplementedGameType {}
 
 static INDEX_HTML: &str = r#"<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <title>Warp Chat</title>
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
     </head>
     <body>
-        
+        <div id="divvv" style="scrollbar-width:none;">
+        </div>
     </body>
+    <style type="text/css">
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            overflow: hidden;
+        }
+    </style>
+    <script type="module" src="static/index.js"></script>
 </html>
 "#;
