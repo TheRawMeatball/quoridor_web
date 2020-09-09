@@ -1,12 +1,23 @@
 use bimap::BiMap;
+use web_sys::{WebSocket, MessageEvent};
 use crossbeam_channel::{Receiver, Sender};
 use quoridor_core::{rulebooks::*, *};
-use std::f64;
 use std::{cell::RefCell, error::Error, rc::Rc};
 use tbmp_core::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::console;
+
+#[allow(unused_macros)]
+macro_rules! console_log {
+    ($($t:tt)*) => ( #[allow(unused_unsafe)]unsafe { log(&format_args!($($t)*).to_string()) })
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 
 generate_rulebook! {
     [NO CONNECT]
@@ -77,8 +88,6 @@ fn main() -> Option<()> {
     let canvas = document.create_element("canvas").unwrap();
     let main_div = document.get_element_by_id("divvv").unwrap();
 
-    console::log_1(&"sdasdasd".into());
-
     main_div.append_child(&canvas).unwrap();
 
     let width = web_sys::window()?.inner_width().ok()?.as_f64()? as u32;
@@ -114,17 +123,52 @@ fn main() -> Option<()> {
             .ok()?;
     }
 
-    let mut game = Quoridor::FreeQuoridor(FreeQuoridor::initial_server());
-
+    let location: String = web_sys::window()?.location().href().ok()?;
+    let game_name = location.split('/').rev().find(|s| !s.is_empty()).unwrap();
+    
+    let mut ws = WebSocket::new(&format!("ws://localhost:3030/join/{}", game_name)).ok()?;
+    
     let context = canvas
-        .get_context("2d")
-        .ok()??
-        .dyn_into::<web_sys::CanvasRenderingContext2d>()
-        .ok()?;
-
+    .get_context("2d")
+    .ok()??
+    .dyn_into::<web_sys::CanvasRenderingContext2d>()
+    .ok()?;
+    
     let scale = size as f64 / STANDARD_CANVAS_SIZE;
     context.scale(scale, scale).ok()?;
+    
+    let agent = QAgent::FreeQuoridor(WSAgent::<QGame::<FreeQuoridor>>::connect(&mut ws));
 
+    let ocnt = Closure::once(move || {
+        console_log!("connection ready!");
+    });
+
+    fn rec(agent: QAgent, context: web_sys::CanvasRenderingContext2d, size: u32, canvas: web_sys::HtmlCanvasElement) {
+        console_log!("lööps");
+        if let Ok(msg) = agent.recv_event() {
+            let (game, side) = match msg {
+                QGameEvent::GameStart(g, s) => (g, s),
+                _ => unreachable!()
+            };
+            on_connect(agent, game, side, context, size, canvas)
+        } else {
+            //rec(agent, context, side, size, canvas);
+            let r = Closure::once(move || {
+                rec(agent, context, size, canvas);
+            });
+            web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(r.as_ref().unchecked_ref(), 100).unwrap();
+            r.forget();
+        }
+    }
+
+    rec(agent, context, size, canvas);
+
+    ws.set_onopen(Some(ocnt.as_ref().unchecked_ref()));
+    ocnt.forget();
+    Some(())
+}
+
+fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::CanvasRenderingContext2d, size: u32, canvas: web_sys::HtmlCanvasElement) {
     let mut colors = get_colors();
     for i in 0..game.get_pawn_count() {
         let color = format!(
@@ -135,14 +179,7 @@ fn main() -> Option<()> {
     }
     set_colors(colors);
 
-    //game.apply_move(&RulebookMove::FreeQuoridor(Move::PlaceWall(Wall {
-    //    position: Position::from((1, 1)),
-    //    orientation: Orientation::Vertical,
-    //    wall_type: WallType::Simple,
-    //})));
-
     let state = State { highlight: None };
-    let side = 0;
     render_game(&context, &game, &state);
 
     let rc = Rc::new((
@@ -219,7 +256,6 @@ fn main() -> Option<()> {
     let closure = Closure::wrap(Box::new(click_handler) as Box<dyn FnMut(web_sys::MouseEvent)>);
     canvas.set_onclick(Some(closure.as_ref().unchecked_ref()));
     closure.forget();
-    Some(())
 }
 
 fn render_game(context: &web_sys::CanvasRenderingContext2d, game: &Quoridor, state: &State) {
@@ -293,5 +329,54 @@ impl PID for PawnID {
         let p3 = game.get_pawn_count() / game.get_player_count();
 
         self / p3
+    }
+}
+
+trait WSAgent<G: Game> {
+    fn connect(&mut self) -> AgentCore<G>; 
+}
+
+impl<G: Game> WSAgent<G> for WebSocket {
+    fn connect(&mut self) -> AgentCore<G> {
+        console_log!("connectin");
+        let ws = self.clone();
+        ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
+        let (etx, erx) = crossbeam_channel::unbounded();
+        let onmessage_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
+            console_log!("RECEIVIN SHIT");
+            web_sys::console::log_1(&e.data());
+            if let Ok(abuf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
+                console_log!("deserializin the shit");
+                let array = js_sys::Uint8Array::new(&abuf);
+                let event = bincode::deserialize(&array.to_vec()).unwrap();
+                console_log!("sent the shit");
+                etx.send(event).unwrap();
+            }
+        }) as Box<dyn FnMut(MessageEvent)>);
+
+        let ws = self.clone();
+        ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
+        onmessage_callback.forget();
+
+        let (mtx, mrx) = crossbeam_channel::unbounded();
+        
+        let cb = Closure::wrap(Box::new(move || {
+            if let Ok(qmove) = mrx.try_recv() {
+                let buf = bincode::serialize(&qmove).unwrap();
+                ws.send_with_u8_array(&buf).unwrap();
+            }
+        }) as Box<dyn FnMut()>);
+    
+        let window = web_sys::window().unwrap();
+        window.set_interval_with_callback_and_timeout_and_arguments_0(
+            cb.as_ref().unchecked_ref(),
+            100,
+        ).unwrap();
+        cb.forget();
+
+        AgentCore {
+            event_channel: erx,
+            move_channel: mtx,
+        }
     }
 }

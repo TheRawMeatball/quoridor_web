@@ -16,18 +16,29 @@ tbmp_core = { git = "https://github.com/TheRawMeatball/tbmp.git" }
 bimap = { version = "0.5.2" }
 crossbeam-channel = "0.4.4"
 
+serde = "1.0"
+bincode = "1.3.1"
+
 [dependencies.web-sys]
 version = "0.3.4"
 features = [
   'CanvasRenderingContext2d',
   'Document',
+  'Location',
   'Element',
   'HtmlCanvasElement',
   'CssStyleDeclaration',
   'HtmlElement',
   'Window',
   'MouseEvent',
-  'console',
+  'console',  
+  "BinaryType",
+  "Blob",
+  "ErrorEvent",
+  "FileReader",
+  "MessageEvent",
+  "ProgressEvent",
+  "WebSocket",
 ]
 
 [package.metadata.wasm-pack.profile.dev.wasm-bindgen]

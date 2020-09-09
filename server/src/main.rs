@@ -69,9 +69,7 @@ async fn main() {
             |name: String, lobbies: Lobbies, games: Games, socket: warp::ws::Ws| {
                 socket.on_upgrade(|socket| async move {
                     let mut lobbies = lobbies.write().await;
-
                     let agent = lobbies.get_mut(&name).unwrap().0.pop().unwrap();
-
                     if lobbies.get(&name).unwrap().0.len() == 0 {
                         let game = lobbies.remove(&name).unwrap();
                         drop(lobbies);
@@ -79,7 +77,6 @@ async fn main() {
                     } else {
                         drop(lobbies);
                     }
-
                     match agent {
                         QAgent::StandardQuoridor(c) => c.host(socket, games, name),
                         QAgent::FreeQuoridor(c) => c.host(socket, games, name),
@@ -90,7 +87,6 @@ async fn main() {
 
     //let game = warp::path::end().map(|| warp::reply::html(GAME_HTML));
     let game = path!("game" / String).and(warp::fs::file("./static/game.html")).map(|_, f: warp::fs::File| {
-        eprintln!("sssd");
         f
     });
     //let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
@@ -158,6 +154,7 @@ impl<G: Game> WSHost for AgentCore<G> {
                     let buf = bincode::serialize(&msg).unwrap();
                     tx.send(Ok(Message::binary(buf))).unwrap();
                 }
+                tokio::task::yield_now().await;
             }
         });
     }
@@ -166,45 +163,3 @@ impl<G: Game> WSHost for AgentCore<G> {
 #[derive(Debug)]
 struct UnimplementedGameType;
 impl warp::reject::Reject for UnimplementedGameType {}
-
-static INDEX_HTML: &str = r#"<!DOCTYPE html>
-<html>
-  <head>
-    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
-    </head>
-    <body>
-        <div id="divvv" style="scrollbar-width:none;">
-        </div>
-    </body>
-    <style type="text/css">
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #222;
-            overflow: hidden;
-        }
-    </style>
-    <script type="module" src="static/index.js"></script>
-</html>
-"#;
-
-static GAME_HTML: &str = r#"<!DOCTYPE html>
-<html>
-  <head>
-    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
-    </head>
-    <body>
-        <div id="divvv" style="scrollbar-width:none;">
-        </div>
-    </body>
-    <style type="text/css">
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #222;
-            overflow: hidden;
-        }
-    </style>
-    <script type="module" src="static/index.js"></script>
-</html>
-"#;

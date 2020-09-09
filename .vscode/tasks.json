@@ -6,7 +6,7 @@
             "type": "shell",
             "options": {"cwd": "${workspaceFolder}/client"},
             "command": "wasm-pack",
-            "args": ["build", "--debug", "--target", "web", "-d", "${workspaceFolder}/pkg"],
+            "args": ["build", "--debug", "--target", "web", "-d", "${workspaceFolder}/static/pkg"],
             "group": "build",
             "problemMatcher": [
                 "$rustc"

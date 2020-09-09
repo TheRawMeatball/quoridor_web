@@ -138,10 +138,12 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "bimap",
+ "bincode",
  "crossbeam-channel",
  "js-sys",
  "lazy_static",
  "quoridor_core",
+ "serde",
  "tbmp_core",
  "wasm-bindgen",
  "web-sys",
