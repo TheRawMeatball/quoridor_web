@@ -1,11 +1,11 @@
 use bimap::BiMap;
-use web_sys::{WebSocket, MessageEvent};
 use crossbeam_channel::{Receiver, Sender};
 use quoridor_core::{rulebooks::*, *};
 use std::{cell::RefCell, error::Error, rc::Rc};
 use tbmp_core::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use web_sys::{MessageEvent, WebSocket};
 
 #[allow(unused_macros)]
 macro_rules! console_log {
@@ -22,7 +22,6 @@ extern "C" {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
 }
-
 
 generate_rulebook! {
     [NO CONNECT]
@@ -89,7 +88,7 @@ pub fn start() {
 }
 
 fn main() -> Option<()> {
-    let document = web_sys::window()?.document()?; 
+    let document = web_sys::window()?.document()?;
 
     let canvas = document.create_element("canvas").unwrap();
     let main_div = document.get_element_by_id("divvv").unwrap();
@@ -135,32 +134,39 @@ fn main() -> Option<()> {
     let game_name = keys[0];
     let host = location.host().ok()?;
     let mut ws = WebSocket::new(&format!("ws://{}/join/{}", host, game_name)).ok()?;
-    
+
     let context = canvas
-    .get_context("2d")
-    .ok()??
-    .dyn_into::<web_sys::CanvasRenderingContext2d>()
-    .ok()?;
-    
+        .get_context("2d")
+        .ok()??
+        .dyn_into::<web_sys::CanvasRenderingContext2d>()
+        .ok()?;
+
     let scale = size as f64 / STANDARD_CANVAS_SIZE;
     context.scale(scale, scale).ok()?;
 
     let agent = match &keys[1][..] {
-        "free" => QAgent::FreeQuoridor(WSAgent::<QGame::<FreeQuoridor>>::connect(&mut ws)),
-        "standard" => QAgent::StandardQuoridor(WSAgent::<QGame::<StandardQuoridor>>::connect(&mut ws)),
-        _ => panic!()
+        "free" => QAgent::FreeQuoridor(WSAgent::<QGame<FreeQuoridor>>::connect(&mut ws)),
+        "standard" => {
+            QAgent::StandardQuoridor(WSAgent::<QGame<StandardQuoridor>>::connect(&mut ws))
+        }
+        _ => panic!(),
     };
-    
+
     let ocnt = Closure::once(move || {
         console_log!("connection ready!");
     });
 
-    fn rec(agent: QAgent, context: web_sys::CanvasRenderingContext2d, size: u32, canvas: web_sys::HtmlCanvasElement) {
+    fn rec(
+        agent: QAgent,
+        context: web_sys::CanvasRenderingContext2d,
+        size: u32,
+        canvas: web_sys::HtmlCanvasElement,
+    ) {
         console_log!("lööps");
         if let Ok(msg) = agent.recv_event() {
             let (game, side) = match msg {
                 QGameEvent::GameStart(g, s) => (g, s),
-                _ => unreachable!()
+                _ => unreachable!(),
             };
             on_connect(agent, game, side, context, size, canvas)
         } else {
@@ -168,7 +174,13 @@ fn main() -> Option<()> {
             let r = Closure::once(move || {
                 rec(agent, context, size, canvas);
             });
-            web_sys::window().unwrap().set_timeout_with_callback_and_timeout_and_arguments_0(r.as_ref().unchecked_ref(), 100).unwrap();
+            web_sys::window()
+                .unwrap()
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    r.as_ref().unchecked_ref(),
+                    100,
+                )
+                .unwrap();
             r.forget();
         }
     }
@@ -180,15 +192,27 @@ fn main() -> Option<()> {
     Some(())
 }
 
-fn get_coords_from_event(e : &web_sys::PointerEvent) -> (f64, f64) {
+fn get_coords_from_event(e: &web_sys::PointerEvent) -> (f64, f64) {
     // e = Mouse click event.
-    let rect = e.target().unwrap().dyn_into::<web_sys::Element>().unwrap().get_bounding_client_rect();
+    let rect = e
+        .target()
+        .unwrap()
+        .dyn_into::<web_sys::Element>()
+        .unwrap()
+        .get_bounding_client_rect();
     let x = e.client_x() as f64 - rect.left(); //x position within the element.
-    let y = e.client_y() as f64 - rect.top();  //y position within the element.
+    let y = e.client_y() as f64 - rect.top(); //y position within the element.
     (x, y)
-  }
+}
 
-fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::CanvasRenderingContext2d, size: u32, canvas: web_sys::HtmlCanvasElement) {
+fn on_connect(
+    agent: QAgent,
+    game: Quoridor,
+    side: PlayerID,
+    context: web_sys::CanvasRenderingContext2d,
+    size: u32,
+    canvas: web_sys::HtmlCanvasElement,
+) {
     let mut colors = get_colors();
     for i in 0..game.get_pawn_count() {
         let color = format!(
@@ -209,10 +233,10 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
         RefCell::new(side),
         RefCell::new(agent),
     ));
-    
+
     let rcc = Clone::clone(&rc);
     let on_mouse_down = move |event: web_sys::PointerEvent| {
-        let game = rcc.0.borrow_mut ();
+        let game = rcc.0.borrow_mut();
         let context = rcc.1.borrow();
         let mut state = rcc.2.borrow_mut();
         let side = rcc.3.borrow();
@@ -236,24 +260,24 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
                     (Some(id), _) if id.owned_by(&game) != *side => None,
                     (Some(_), None) => Some(pos),
                     (Some(_), Some(hpos)) if hpos != pos => Some(pos),
-                    (None, Some(hpos)) => { 
+                    (None, Some(hpos)) => {
                         if game.turn_of() == *side {
                             //send a move
-                            let qmv = Move::MovePawn(hpos, pos); 
+                            let qmv = Move::MovePawn(hpos, pos);
                             agent.send_move(RulebookMove::wrap(&game, &qmv)).unwrap();
                         }
                         None
-                    },
-                    _ => None
+                    }
+                    _ => None,
                 };
             }
             (false, false) => {
                 let wall = Wall {
                     position: (x, 9 - y).into(),
                     orientation: if event.button() == 0 {
-                        Orientation::Vertical 
+                        Orientation::Vertical
                     } else {
-                        Orientation::Horizontal 
+                        Orientation::Horizontal
                     },
                     wall_type: WallType::Simple,
                 };
@@ -290,14 +314,16 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
 
         if let Ok(e) = agent.recv_event() {
             match e {
-                QGameEvent::MoveHappened(qmv) => { game.apply_move(&qmv); }
-                QGameEvent::GameEnd(pid) =>{
-                    if let Some(id) = pid { 
+                QGameEvent::MoveHappened(qmv) => {
+                    game.apply_move(&qmv);
+                }
+                QGameEvent::GameEnd(pid) => {
+                    if let Some(id) = pid {
                         alert!("Player {} won!", id);
-                    } else { 
+                    } else {
                         alert!("Draw!");
                     }
-                },
+                }
                 QGameEvent::OpponentQuit => {
                     alert!("Opponent quit!");
                 }
@@ -352,7 +378,7 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
                             let wall = Wall {
                                 wall_type: WallType::Simple,
                                 orientation: w1.orientation,
-                                position: (u8::max(x1, x2), u8::max(y1, y2)).into()
+                                position: (u8::max(x1, x2), u8::max(y1, y2)).into(),
                             };
 
                             let qmv = Move::PlaceWall(wall);
@@ -366,10 +392,12 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
 
     let closure = Closure::wrap(Box::new(game_event_handler) as Box<dyn FnMut()>);
     let window = web_sys::window().unwrap();
-    window.set_interval_with_callback_and_timeout_and_arguments_0(
-        closure.as_ref().unchecked_ref(),
-        100,
-    ).unwrap();
+    window
+        .set_interval_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().unchecked_ref(),
+            100,
+        )
+        .unwrap();
     closure.forget();
 
     let closure = Closure::wrap(Box::new(on_mouse_down) as Box<dyn FnMut(web_sys::PointerEvent)>);
@@ -456,7 +484,7 @@ impl PID for PawnID {
 }
 
 trait WSAgent<G: Game> {
-    fn connect(&mut self) -> AgentCore<G>; 
+    fn connect(&mut self) -> AgentCore<G>;
 }
 
 impl<G: Game> WSAgent<G> for WebSocket {
@@ -481,19 +509,21 @@ impl<G: Game> WSAgent<G> for WebSocket {
         onmessage_callback.forget();
 
         let (mtx, mrx) = crossbeam_channel::unbounded();
-        
+
         let cb = Closure::wrap(Box::new(move || {
             if let Ok(qmove) = mrx.try_recv() {
                 let buf = bincode::serialize(&qmove).unwrap();
                 ws.send_with_u8_array(&buf).unwrap();
             }
         }) as Box<dyn FnMut()>);
-    
+
         let window = web_sys::window().unwrap();
-        window.set_interval_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            100,
-        ).unwrap();
+        window
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(),
+                100,
+            )
+            .unwrap();
         cb.forget();
 
         AgentCore {

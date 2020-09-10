@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
-use warp::{Filter, hyper::Uri};
+use warp::{hyper::Uri, Filter};
 use warp::{
     path,
     ws::{Message, WebSocket},
@@ -43,7 +43,7 @@ macro_rules! warpify {
 fn gtstr(gt: QGameType) -> &'static str {
     match gt {
         QGameType::StandardQuoridor => "standard",
-        QGameType::FreeQuoridor => "free"
+        QGameType::FreeQuoridor => "free",
     }
 }
 
@@ -65,7 +65,12 @@ async fn main() {
                 let gt = game_type;
                 let n = name.clone();
                 lobbies.write().await.insert(name, (v, game_type, t));
-                Ok::<_, std::convert::Infallible>(warp::redirect(Uri::builder().path_and_query(&format!("/game/{}/{}", gtstr(gt), n)[..]).build().unwrap()))
+                Ok::<_, std::convert::Infallible>(warp::redirect(
+                    Uri::builder()
+                        .path_and_query(&format!("/game/{}/{}", gtstr(gt), n)[..])
+                        .build()
+                        .unwrap(),
+                ))
             },
         );
 
@@ -95,25 +100,20 @@ async fn main() {
         );
 
     //let game = warp::path::end().map(|| warp::reply::html(GAME_HTML));
-    let game = path!("game" / String / String).and(warp::fs::file("./static/game.html")).map(|_, _, f: warp::fs::File| {
-        f
-    });
+    let game = path!("game" / String / String)
+        .and(warp::fs::file("./static/game.html"))
+        .map(|_, _, f: warp::fs::File| f);
     //let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
-    let index = warp::path::end().and(warp::fs::file("./static/index.html")).map(|f:warp::fs::File| {
-        f
-    });
+    let index = warp::path::end()
+        .and(warp::fs::file("./static/index.html"))
+        .map(|f: warp::fs::File| f);
 
     //println!("{:?}", std::fs::canonicalize(std::path::PathBuf::from("./static")));
 
-    let routes = index
-        .or(game)
-        .or(new_lobby)
-        .or(join)
-        .or(path("static")
-            .and(warp::fs::dir("./static")
-            .map(|f: warp::fs::File| {
-                warp::reply::with_header(f, "name", "value")
-            })));
+    let routes = index.or(game).or(new_lobby).or(join).or(path("static").and(
+        warp::fs::dir("./static")
+            .map(|f: warp::fs::File| warp::reply::with_header(f, "name", "value")),
+    ));
 
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 }
@@ -151,7 +151,7 @@ impl<G: Game> WSHost for AgentCore<G> {
                         let buf = msg.as_bytes();
                         if let Ok(qmv) = bincode::deserialize::<G::Move>(buf) {
                             mc.send(qmv).unwrap();
-                            if let Some(t) =  games.write().await.get_mut(&name) {
+                            if let Some(t) = games.write().await.get_mut(&name) {
                                 t().unwrap();
                             }
                         } else {
