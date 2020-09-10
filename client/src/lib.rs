@@ -187,13 +187,16 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
         RefCell::new(context),
         RefCell::new(state),
         RefCell::new(side),
+        RefCell::new(agent),
     ));
-
+    
+    let rcc = Clone::clone(&rc);
     let click_handler = move |event: web_sys::MouseEvent| {
-        let game = rc.0.borrow_mut();
-        let context = rc.1.borrow_mut();
-        let mut state = rc.2.borrow_mut();
-        let side = rc.3.borrow();
+        let game = rcc.0.borrow_mut();
+        let context = rcc.1.borrow_mut();
+        let mut state = rcc.2.borrow_mut();
+        let side = rcc.3.borrow();
+        let agent = rcc.4.borrow_mut();
 
         let x = STANDARD_CANVAS_SIZE * event.offset_x() as f64 / size as f64;
         let y = STANDARD_CANVAS_SIZE * event.offset_y() as f64 / size as f64;
@@ -213,22 +216,32 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
                     (Some(id), _) if id.owned_by(&game) != *side => None,
                     (Some(_), None) => Some(pos),
                     (Some(_), Some(hpos)) if hpos != pos => Some(pos),
-                    _ => None,
+                    (None, Some(hpos)) => { 
+                        if game.turn_of() == *side {
+                            //send a move
+                            let qmv = Move::MovePawn(hpos, pos); 
+                            agent.send_move(RulebookMove::wrap(&game, &qmv)).unwrap();
+                        }
+                        None
+                    },
+                    _ => None
                 };
-
-                if game.turn_of() == *side {
-                    //send a move
-                }
             }
             (false, false) => {
-                let _ = Wall {
+                let wall = Wall {
                     position: (x, 9 - y).into(),
-                    orientation: Orientation::Vertical,
+                    orientation: if event.button() == 0 {
+                        Orientation::Vertical 
+                    } else {
+                        Orientation::Horizontal 
+                    },
                     wall_type: WallType::Simple,
                 };
 
                 if game.turn_of() == *side {
                     //send a move
+                    let qmv = Move::PlaceWall(wall);
+                    agent.send_move(RulebookMove::wrap(&game, &qmv)).unwrap();
                 }
             }
             (horizontal, _vertical) => {
@@ -253,8 +266,40 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
         render_game(&context, &game, &state);
     };
 
+    let rcc = Clone::clone(&rc);
+    let game_event_handler = move || {
+        let mut game = rcc.0.borrow_mut();
+        let context = rcc.1.borrow_mut();
+        let state = rcc.2.borrow();
+        //let side = rcc.3.borrow();
+        let agent = rcc.4.borrow();
+
+        if let Ok(e) = agent.recv_event() {
+            match e {
+                QGameEvent::MoveHappened(qmv) => { game.apply_move(&qmv); }
+                QGameEvent::GameEnd(pid) =>{
+                    if let Some(id) = pid { 
+                        console_log!("PLayer {} won!", id);
+                    } else { 
+                        console_log!("DRAW");
+                    }
+                },
+                _ => {}
+            }
+            render_game(&context, &game, &state);
+        }
+    };
+
     let closure = Closure::wrap(Box::new(click_handler) as Box<dyn FnMut(web_sys::MouseEvent)>);
     canvas.set_onclick(Some(closure.as_ref().unchecked_ref()));
+    closure.forget();
+
+    let closure = Closure::wrap(Box::new(game_event_handler) as Box<dyn FnMut()>);
+    let window = web_sys::window().unwrap();
+    window.set_interval_with_callback_and_timeout_and_arguments_0(
+        closure.as_ref().unchecked_ref(),
+        100,
+    ).unwrap();
     closure.forget();
 }
 
