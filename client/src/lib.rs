@@ -130,8 +130,9 @@ fn main() -> Option<()> {
     }
 
     let location = web_sys::window()?.location();
-    let href = location.href().ok()?;
-    let game_name = href.split('/').rev().find(|s| !s.is_empty()).unwrap();
+    let href: String = location.href().ok()?;
+    let keys: Vec<_> = href.split('/').rev().filter(|s| !s.is_empty()).collect();
+    let game_name = keys[0];
     let host = location.host().ok()?;
     let mut ws = WebSocket::new(&format!("ws://{}/join/{}", host, game_name)).ok()?;
     
@@ -143,9 +144,13 @@ fn main() -> Option<()> {
     
     let scale = size as f64 / STANDARD_CANVAS_SIZE;
     context.scale(scale, scale).ok()?;
-    
-    let agent = QAgent::FreeQuoridor(WSAgent::<QGame::<FreeQuoridor>>::connect(&mut ws));
 
+    let agent = match &keys[1][..] {
+        "free" => QAgent::FreeQuoridor(WSAgent::<QGame::<FreeQuoridor>>::connect(&mut ws)),
+        "standard" => QAgent::StandardQuoridor(WSAgent::<QGame::<StandardQuoridor>>::connect(&mut ws)),
+        _ => panic!()
+    };
+    
     let ocnt = Closure::once(move || {
         console_log!("connection ready!");
     });

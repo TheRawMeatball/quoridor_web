@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
-use warp::Filter;
+use warp::{Filter, hyper::Uri};
 use warp::{
     path,
     ws::{Message, WebSocket},
@@ -40,6 +40,13 @@ macro_rules! warpify {
     }};
 }
 
+fn gtstr(gt: QGameType) -> &'static str {
+    match gt {
+        QGameType::StandardQuoridor => "standard",
+        QGameType::FreeQuoridor => "free"
+    }
+}
+
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
@@ -55,8 +62,10 @@ async fn main() {
         .and_then(
             |(game_type, name): (QGameType, String), lobbies: Lobbies| async move {
                 let (v, t) = game_type.new_game();
+                let gt = game_type;
+                let n = name.clone();
                 lobbies.write().await.insert(name, (v, game_type, t));
-                Ok::<_, std::convert::Infallible>(warp::reply())
+                Ok::<_, std::convert::Infallible>(warp::redirect(Uri::builder().path_and_query(&format!("/game/{}/{}", gtstr(gt), n)[..]).build().unwrap()))
             },
         );
 
@@ -86,7 +95,7 @@ async fn main() {
         );
 
     //let game = warp::path::end().map(|| warp::reply::html(GAME_HTML));
-    let game = path!("game" / String).and(warp::fs::file("./static/game.html")).map(|_, f: warp::fs::File| {
+    let game = path!("game" / String / String).and(warp::fs::file("./static/game.html")).map(|_, _, f: warp::fs::File| {
         f
     });
     //let index = warp::path::end().map(|| warp::reply::html(INDEX_HTML));
