@@ -106,7 +106,7 @@ async fn main() {
                 warp::reply::with_header(f, "name", "value")
             })));
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 }
 
 fn parse_lobby_request() -> impl Filter<Extract = ((QGameType, String),), Error = Rejection> + Copy
