@@ -142,10 +142,13 @@ impl<G: Game> WSHost for AgentCore<G> {
                         let buf = msg.as_bytes();
                         if let Ok(qmv) = bincode::deserialize::<G::Move>(buf) {
                             mc.send(qmv).unwrap();
-                            games.write().await.get_mut(&name).unwrap()().unwrap();
+                            if let Some(t) =  games.write().await.get_mut(&name) {
+                                t().unwrap();
+                            }
                         } else {
                             //let buf = bincode::serialize(&GameEvent::<G>::OpponentQuit).unwrap();
                             eprintln!("Someone quit!");
+                            games.write().await.remove(&name);
                             //quit_tx.send(Ok(Message::binary(buf))).unwrap();
                         }
                     }

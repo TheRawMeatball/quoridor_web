@@ -3,17 +3,18 @@
   <head>
     <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
     </head>
-    <body oncontextmenu="return false;">
-        <div id="divvv" style="scrollbar-width:none;">
-           <h1 style="color: white;">INDEX</h1>
-	</div>
+    <body>
+        <form action="/lobby/new">
+            <label for="gtype">Game type:</label><br>
+            <input type="text" id="gtype" name="game_type"><br>
+            <label for="name">Lobby name:</label><br>
+            <input type="text" id="name" name="name""><br><br>
+            <input type="submit" value="Submit">
+          </form> 
     </body>
     <style type="text/css">
         body {
-            margin: 0;
-            padding: 0;
             background-color: #222;
-            overflow: hidden;
         }
     </style>
 </html>
