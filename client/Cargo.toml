@@ -32,13 +32,16 @@ features = [
   'Window',
   'MouseEvent',
   'console',  
-  "BinaryType",
-  "Blob",
-  "ErrorEvent",
-  "FileReader",
-  "MessageEvent",
-  "ProgressEvent",
-  "WebSocket",
+  'BinaryType',
+  'Blob',
+  'ErrorEvent',
+  'FileReader',
+  'MessageEvent',
+  'ProgressEvent',
+  'WebSocket',
+  'PointerEvent',
+  'EventTarget',
+  'DomRect',
 ]
 
 [package.metadata.wasm-pack.profile.dev.wasm-bindgen]

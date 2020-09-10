@@ -12,6 +12,11 @@ macro_rules! console_log {
     ($($t:tt)*) => ( #[allow(unused_unsafe)]unsafe { log(&format_args!($($t)*).to_string()) })
 }
 
+#[allow(unused_macros)]
+macro_rules! alert {
+    ($($t:tt)*) => ( #[allow(unused_unsafe)]unsafe {  web_sys::window().unwrap().alert_with_message(&format!($($t)*)).unwrap(); })
+}
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = console)]
@@ -63,9 +68,10 @@ fn set_colors(new_colors: ColorStruct) {
         .ok()
 }*/
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct State {
     highlight: Option<Position>,
+    draw_start: Option<Wall>,
 }
 
 #[derive(Clone)]
@@ -169,6 +175,14 @@ fn main() -> Option<()> {
     Some(())
 }
 
+fn get_coords_from_event(e : &web_sys::PointerEvent) -> (f64, f64) {
+    // e = Mouse click event.
+    let rect = e.target().unwrap().dyn_into::<web_sys::Element>().unwrap().get_bounding_client_rect();
+    let x = e.client_x() as f64 - rect.left(); //x position within the element.
+    let y = e.client_y() as f64 - rect.top();  //y position within the element.
+    (x, y)
+  }
+
 fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::CanvasRenderingContext2d, size: u32, canvas: web_sys::HtmlCanvasElement) {
     let mut colors = get_colors();
     for i in 0..game.get_pawn_count() {
@@ -180,7 +194,7 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
     }
     set_colors(colors);
 
-    let state = State { highlight: None };
+    let state = State::default();
     render_game(&context, &game, &state);
 
     let rc = Rc::new((
@@ -192,17 +206,17 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
     ));
     
     let rcc = Clone::clone(&rc);
-    let click_handler = move |event: web_sys::MouseEvent| {
-        let game = rcc.0.borrow_mut();
-        let context = rcc.1.borrow_mut();
+    let on_mouse_down = move |event: web_sys::PointerEvent| {
+        let game = rcc.0.borrow_mut ();
+        let context = rcc.1.borrow();
         let mut state = rcc.2.borrow_mut();
         let side = rcc.3.borrow();
-        let agent = rcc.4.borrow_mut();
+        let agent = rcc.4.borrow();
 
-        let x = STANDARD_CANVAS_SIZE * event.offset_x() as f64 / size as f64;
-        let y = STANDARD_CANVAS_SIZE * event.offset_y() as f64 / size as f64;
+        let (offset_x, offset_y) = get_coords_from_event(&event);
 
-        //console::log_2(&x.into(), &x.into());
+        let x = STANDARD_CANVAS_SIZE * offset_x as f64 / size as f64;
+        let y = STANDARD_CANVAS_SIZE * offset_y as f64 / size as f64;
 
         let mod_x = x % UNIT_WIDTH;
         let mod_y = y % UNIT_WIDTH;
@@ -246,7 +260,7 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
                 }
             }
             (horizontal, _vertical) => {
-                let _ = Wall {
+                let w1 = Wall {
                     position: (x, horizontal as u8 + 8 - y).into(),
                     orientation: if horizontal {
                         Orientation::Horizontal
@@ -255,15 +269,9 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
                     },
                     wall_type: WallType::Single,
                 };
-
-                if game.turn_of() == *side {
-                    //send a move
-                }
+                state.draw_start = Some(w1);
             }
         }
-
-        //console::log_1(&strr.into());
-
         render_game(&context, &game, &state);
     };
 
@@ -280,20 +288,76 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
                 QGameEvent::MoveHappened(qmv) => { game.apply_move(&qmv); }
                 QGameEvent::GameEnd(pid) =>{
                     if let Some(id) = pid { 
-                        console_log!("PLayer {} won!", id);
+                        alert!("Player {} won!", id);
                     } else { 
-                        console_log!("DRAW");
+                        alert!("Draw!");
                     }
                 },
+                QGameEvent::OpponentQuit => {
+                    alert!("Opponent quit!");
+                }
                 _ => {}
             }
             render_game(&context, &game, &state);
         }
     };
 
-    let closure = Closure::wrap(Box::new(click_handler) as Box<dyn FnMut(web_sys::MouseEvent)>);
-    canvas.set_onclick(Some(closure.as_ref().unchecked_ref()));
-    closure.forget();
+    let rcc = Clone::clone(&rc);
+    let on_mouse_up = move |event: web_sys::PointerEvent| {
+        let game = rcc.0.borrow_mut();
+        //let context = rcc.1.borrow_mut();
+        let state = rcc.2.borrow();
+        let side = rcc.3.borrow();
+        let agent = rcc.4.borrow_mut();
+
+        let (offset_x, offset_y) = get_coords_from_event(&event);
+
+        let x = STANDARD_CANVAS_SIZE * offset_x as f64 / size as f64;
+        let y = STANDARD_CANVAS_SIZE * offset_y as f64 / size as f64;
+
+        let mod_x = x % UNIT_WIDTH;
+        let mod_y = y % UNIT_WIDTH;
+
+        let x = ((x - mod_x) / UNIT_WIDTH) as u8;
+        let y = ((y - mod_y) / UNIT_WIDTH) as u8;
+
+        match (mod_x > WALL_WIDTH, mod_y > WALL_WIDTH) {
+            (true, true) | (false, false) => {}
+            (horizontal, _vertical) => {
+                if let Some(w1) = state.draw_start {
+                    let w2 = Wall {
+                        position: (x, horizontal as u8 + 8 - y).into(),
+                        orientation: if horizontal {
+                            Orientation::Horizontal
+                        } else {
+                            Orientation::Vertical
+                        },
+                        wall_type: WallType::Single,
+                    };
+
+                    if w1.orientation == w2.orientation && game.turn_of() == *side {
+                        let (x1, y1) = (w1.position.x, w1.position.y);
+                        let (x2, y2) = (w2.position.x, w2.position.y);
+                        let delta_x = x1 as i8 - x2 as i8;
+                        let delta_y = y1 as i8 - y2 as i8;
+
+                        console_log!("{:?} {:?}", w1, w2);
+
+                        if delta_x.abs() + delta_y.abs() == 1 {
+                            let wall = Wall {
+                                wall_type: WallType::Simple,
+                                orientation: w1.orientation,
+                                position: (u8::max(x1, x2), u8::max(y1, y2)).into()
+                            };
+
+                            let qmv = Move::PlaceWall(wall);
+                            agent.send_move(RulebookMove::wrap(&game, &qmv)).unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    };
 
     let closure = Closure::wrap(Box::new(game_event_handler) as Box<dyn FnMut()>);
     let window = web_sys::window().unwrap();
@@ -301,6 +365,14 @@ fn on_connect(agent: QAgent, game: Quoridor, side: PlayerID, context: web_sys::C
         closure.as_ref().unchecked_ref(),
         100,
     ).unwrap();
+    closure.forget();
+
+    let closure = Closure::wrap(Box::new(on_mouse_down) as Box<dyn FnMut(web_sys::PointerEvent)>);
+    canvas.set_onpointerdown(Some(closure.as_ref().unchecked_ref()));
+    closure.forget();
+
+    let closure = Closure::wrap(Box::new(on_mouse_up) as Box<dyn FnMut(web_sys::PointerEvent)>);
+    canvas.set_onpointerup(Some(closure.as_ref().unchecked_ref()));
     closure.forget();
 }
 
@@ -390,7 +462,6 @@ impl<G: Game> WSAgent<G> for WebSocket {
         let (etx, erx) = crossbeam_channel::unbounded();
         let onmessage_callback = Closure::wrap(Box::new(move |e: MessageEvent| {
             console_log!("RECEIVIN SHIT");
-            web_sys::console::log_1(&e.data());
             if let Ok(abuf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
                 console_log!("deserializin the shit");
                 let array = js_sys::Uint8Array::new(&abuf);

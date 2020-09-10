@@ -131,6 +131,7 @@ impl<G: Game> WSHost for AgentCore<G> {
         let (wstx, mut wsrx) = socket.split();
 
         let (tx, rx) = mpsc::unbounded_channel();
+        //let quit_tx = tx.clone();
         tokio::spawn(rx.forward(wstx));
         let mc = self.move_channel;
         let ec = self.event_channel;
@@ -139,9 +140,14 @@ impl<G: Game> WSHost for AgentCore<G> {
                 match result {
                     Ok(msg) => {
                         let buf = msg.as_bytes();
-                        let qmv = bincode::deserialize::<G::Move>(buf).unwrap();
-                        mc.send(qmv).unwrap();
-                        games.write().await.get_mut(&name).unwrap()().unwrap();
+                        if let Ok(qmv) = bincode::deserialize::<G::Move>(buf) {
+                            mc.send(qmv).unwrap();
+                            games.write().await.get_mut(&name).unwrap()().unwrap();
+                        } else {
+                            //let buf = bincode::serialize(&GameEvent::<G>::OpponentQuit).unwrap();
+                            eprintln!("Someone quit!");
+                            //quit_tx.send(Ok(Message::binary(buf))).unwrap();
+                        }
                     }
                     Err(_) => break,
                 }
