@@ -123,10 +123,11 @@ fn main() -> Option<()> {
             .ok()?;
     }
 
-    let location: String = web_sys::window()?.location().href().ok()?;
-    let game_name = location.split('/').rev().find(|s| !s.is_empty()).unwrap();
-    
-    let mut ws = WebSocket::new(&format!("ws://localhost:3030/join/{}", game_name)).ok()?;
+    let location = web_sys::window()?.location();
+    let href = location.href().ok()?;
+    let game_name = href.split('/').rev().find(|s| !s.is_empty()).unwrap();
+    let host = location.host().ok()?;
+    let mut ws = WebSocket::new(&format!("ws://{}/join/{}", host, game_name)).ok()?;
     
     let context = canvas
     .get_context("2d")
