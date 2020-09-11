@@ -1,9 +1,9 @@
 // #![deny(warnings)]
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 use warp::{hyper::Uri, Filter};
 use warp::{
@@ -40,11 +40,25 @@ macro_rules! warpify {
     }};
 }
 
-fn gtstr(gt: QGameType) -> &'static str {
+fn gtstr(gt: &QGameType) -> &'static str {
     match gt {
         QGameType::StandardQuoridor => "standard",
         QGameType::FreeQuoridor => "free",
     }
+}
+
+async fn get_lobbies(lobbies: Lobbies) -> Result<impl warp::Reply, Infallible> {
+    Ok(warp::reply::json(
+        &lobbies
+            .read()
+            .await
+            .iter()
+            .map(|(name, (_, game_type, _))| LobbyRequest {
+                game_type: gtstr(game_type).into(),
+                name: name.clone(),
+            })
+            .collect::<Vec<_>>(),
+    ))
 }
 
 #[tokio::main]
@@ -67,12 +81,17 @@ async fn main() {
                 lobbies.write().await.insert(name, (v, game_type, t));
                 Ok::<_, std::convert::Infallible>(warp::redirect(
                     Uri::builder()
-                        .path_and_query(&format!("/game/{}/{}", gtstr(gt), n)[..])
+                        .path_and_query(&format!("/game/{}/{}", gtstr(&gt), n)[..])
                         .build()
                         .unwrap(),
                 ))
             },
         );
+
+    let lobby_list = warp::get()
+        .and(path!("lobby" / "list"))
+        .and(warpify!(lobbies))
+        .and_then(get_lobbies);
 
     let join = warp::get()
         .and(path!("join" / String))
@@ -110,10 +129,15 @@ async fn main() {
 
     //println!("{:?}", std::fs::canonicalize(std::path::PathBuf::from("./static")));
 
-    let routes = index.or(game).or(new_lobby).or(join).or(path("static").and(
-        warp::fs::dir("./static")
-            .map(|f: warp::fs::File| warp::reply::with_header(f, "name", "value")),
-    ));
+    let routes = index
+        .or(game)
+        .or(lobby_list)
+        .or(new_lobby)
+        .or(join)
+        .or(path("static").and(
+            warp::fs::dir("./static")
+                .map(|f: warp::fs::File| warp::reply::with_header(f, "name", "value")),
+        ));
 
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 }
