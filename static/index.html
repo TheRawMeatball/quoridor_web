@@ -29,7 +29,14 @@
                 list.forEach(element => {
                     let li = document.createElement("li");
                     let text = document.createTextNode("Type: " + element.game_type + ", Name: " + element.name);
+                    let connectText = document.createTextNode("Connect");
+                    let button = document.createElement("button");
+                    button.appendChild(connectText);
+                    button.onclick = () => {
+                        window.location = "/game/" + element.game_type + "/" + element.name;
+                    };
                     li.appendChild(text);
+                    li.appendChild(button);
                     listHtml.appendChild(li);
                 });
             }));
