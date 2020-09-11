@@ -272,20 +272,22 @@ fn on_connect(
                 };
             }
             (false, false) => {
-                let wall = Wall {
-                    position: (x, 9 - y).into(),
-                    orientation: if event.button() == 0 {
-                        Orientation::Vertical
-                    } else {
-                        Orientation::Horizontal
-                    },
-                    wall_type: WallType::Simple,
-                };
+                if event.pointer_type() == "mouse" {
+                    let wall = Wall {
+                        position: (x, 9 - y).into(),
+                        orientation: if event.button() == 0 {
+                            Orientation::Vertical
+                        } else {
+                            Orientation::Horizontal
+                        },
+                        wall_type: WallType::Simple,
+                    };
 
-                if game.turn_of() == *side {
-                    //send a move
-                    let qmv = Move::PlaceWall(wall);
-                    agent.send_move(RulebookMove::wrap(&game, &qmv)).unwrap();
+                    if game.turn_of() == *side {
+                        //send a move
+                        let qmv = Move::PlaceWall(wall);
+                        agent.send_move(RulebookMove::wrap(&game, &qmv)).unwrap();
+                    }
                 }
             }
             (horizontal, _vertical) => {
