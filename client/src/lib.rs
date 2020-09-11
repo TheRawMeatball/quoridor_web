@@ -95,19 +95,29 @@ fn main() -> Option<()> {
 
     main_div.append_child(&canvas).unwrap();
 
-    let width = web_sys::window()?.inner_width().ok()?.as_f64()? as u32;
-    let height = web_sys::window()?.inner_height().ok()?.as_f64()? as u32;
+    let div = main_div
+        .dyn_into::<web_sys::HtmlElement>()
+        .ok()?
+        .get_bounding_client_rect();
 
-    let size = u32::min(width, height);
+    let width = web_sys::window()?.inner_width().ok()?.as_f64()? - div.left();
+    let height = web_sys::window()?.inner_height().ok()?.as_f64()? - div.top();
+
+    let size = f64::min(width, height);
+
+    let data_div = document
+        .get_element_by_id("metadata")?
+        .dyn_into::<web_sys::HtmlElement>()
+        .ok()?;
 
     let canvas: web_sys::HtmlCanvasElement =
         canvas.dyn_into::<web_sys::HtmlCanvasElement>().ok()?;
 
-    canvas.set_width(size);
-    canvas.set_height(size);
+    canvas.set_width(size as u32);
+    canvas.set_height(size as u32);
 
     if width > height {
-        let margin = (width - size) / 2;
+        let margin = (width - size) / 2.0;
         canvas
             .style()
             .set_property("margin-left", &format!("{}px", margin))
@@ -117,7 +127,7 @@ fn main() -> Option<()> {
             .set_property("margin-right", &format!("{}px", margin))
             .ok()?;
     } else {
-        let margin = (height - size) / 2;
+        let margin = (height - size) / 2.0;
         canvas
             .style()
             .set_property("margin-top", &format!("{}px", margin))
@@ -141,9 +151,6 @@ fn main() -> Option<()> {
         .dyn_into::<web_sys::CanvasRenderingContext2d>()
         .ok()?;
 
-    let scale = size as f64 / STANDARD_CANVAS_SIZE;
-    context.scale(scale, scale).ok()?;
-
     let agent = match &keys[1][..] {
         "free" => QAgent::FreeQuoridor(WSAgent::<QGame<FreeQuoridor>>::connect(&mut ws)),
         "standard" => {
@@ -159,7 +166,8 @@ fn main() -> Option<()> {
     fn rec(
         agent: QAgent,
         context: web_sys::CanvasRenderingContext2d,
-        size: u32,
+        div: web_sys::HtmlElement,
+        size: f64,
         canvas: web_sys::HtmlCanvasElement,
     ) {
         console_log!("lööps");
@@ -168,11 +176,19 @@ fn main() -> Option<()> {
                 QGameEvent::GameStart(g, s) => (g, s),
                 _ => unreachable!(),
             };
-            on_connect(agent, game, side, context, size, canvas)
+            let scale = size as f64 / STANDARD_CANVAS_SIZE;
+
+            if side == 1 {
+                context.translate(0.0, size).unwrap();
+                context.scale(scale, -scale).unwrap();
+            } else {
+                context.scale(scale, scale).unwrap();
+            };
+            on_connect(agent, game, side, context, div, size, canvas)
         } else {
             //rec(agent, context, side, size, canvas);
             let r = Closure::once(move || {
-                rec(agent, context, size, canvas);
+                rec(agent, context, div, size, canvas);
             });
             web_sys::window()
                 .unwrap()
@@ -185,24 +201,28 @@ fn main() -> Option<()> {
         }
     }
 
-    rec(agent, context, size, canvas);
+    rec(agent, context, data_div, size, canvas);
 
     ws.set_onopen(Some(ocnt.as_ref().unchecked_ref()));
     ocnt.forget();
     Some(())
 }
 
-fn get_coords_from_event(e: &web_sys::PointerEvent) -> (f64, f64) {
+fn  get_coords_from_event(e: &web_sys::PointerEvent, side: PlayerID) -> (f64, f64) {
     // e = Mouse click event.
     let rect = e
         .target()
         .unwrap()
-        .dyn_into::<web_sys::Element>()
+        .dyn_into::<web_sys::HtmlElement>()
         .unwrap()
         .get_bounding_client_rect();
     let x = e.client_x() as f64 - rect.left(); //x position within the element.
     let y = e.client_y() as f64 - rect.top(); //y position within the element.
-    (x, y)
+    if side == 0 {
+        (x, y)
+    } else {
+        (x, rect.height() as f64 - y)
+    }
 }
 
 fn on_connect(
@@ -210,7 +230,8 @@ fn on_connect(
     game: Quoridor,
     side: PlayerID,
     context: web_sys::CanvasRenderingContext2d,
-    size: u32,
+    data_div: web_sys::HtmlElement,
+    size: f64,
     canvas: web_sys::HtmlCanvasElement,
 ) {
     let mut colors = get_colors();
@@ -224,7 +245,7 @@ fn on_connect(
     set_colors(colors);
 
     let state = State::default();
-    render_game(&context, &game, &state);
+    render_game(&context, &data_div, &game, &state);
 
     let rc = Rc::new((
         RefCell::new(game),
@@ -232,6 +253,7 @@ fn on_connect(
         RefCell::new(state),
         RefCell::new(side),
         RefCell::new(agent),
+        RefCell::new(data_div),
     ));
 
     let rcc = Clone::clone(&rc);
@@ -241,11 +263,12 @@ fn on_connect(
         let mut state = rcc.2.borrow_mut();
         let side = rcc.3.borrow();
         let agent = rcc.4.borrow();
+        let data_div = rcc.5.borrow();
 
-        let (offset_x, offset_y) = get_coords_from_event(&event);
+        let (offset_x, offset_y) = get_coords_from_event(&event, *side);
 
-        let x = STANDARD_CANVAS_SIZE * offset_x as f64 / size as f64;
-        let y = STANDARD_CANVAS_SIZE * offset_y as f64 / size as f64;
+        let x = STANDARD_CANVAS_SIZE * offset_x as f64 / size;
+        let y = STANDARD_CANVAS_SIZE * offset_y as f64 / size;
 
         let mod_x = x % UNIT_WIDTH;
         let mod_y = y % UNIT_WIDTH;
@@ -303,7 +326,7 @@ fn on_connect(
                 state.draw_start = Some(w1);
             }
         }
-        render_game(&context, &game, &state);
+        render_game(&context, &data_div, &game, &state);
     };
 
     let rcc = Clone::clone(&rc);
@@ -313,6 +336,7 @@ fn on_connect(
         let state = rcc.2.borrow();
         //let side = rcc.3.borrow();
         let agent = rcc.4.borrow();
+        let div = rcc.5.borrow();
 
         if let Ok(e) = agent.recv_event() {
             match e {
@@ -331,7 +355,7 @@ fn on_connect(
                 }
                 _ => {}
             }
-            render_game(&context, &game, &state);
+            render_game(&context, &div, &game, &state);
         }
     };
 
@@ -343,7 +367,7 @@ fn on_connect(
         let side = rcc.3.borrow();
         let agent = rcc.4.borrow_mut();
 
-        let (offset_x, offset_y) = get_coords_from_event(&event);
+        let (offset_x, offset_y) = get_coords_from_event(&event, *side);
 
         let x = STANDARD_CANVAS_SIZE * offset_x as f64 / size as f64;
         let y = STANDARD_CANVAS_SIZE * offset_y as f64 / size as f64;
@@ -411,7 +435,12 @@ fn on_connect(
     closure.forget();
 }
 
-fn render_game(context: &web_sys::CanvasRenderingContext2d, game: &Quoridor, state: &State) {
+fn render_game(
+    context: &web_sys::CanvasRenderingContext2d,
+    data_div: &web_sys::HtmlElement,
+    game: &Quoridor,
+    state: &State,
+) {
     context.set_fill_style(&get_colors().base);
     context.fill_rect(0.0, 0.0, STANDARD_CANVAS_SIZE, STANDARD_CANVAS_SIZE);
 
@@ -471,6 +500,12 @@ fn render_game(context: &web_sys::CanvasRenderingContext2d, game: &Quoridor, sta
             SPOT_WIDTH,
         );
     }
+
+    data_div.set_inner_html(
+        &game
+            .wall_counts()
+            .fold(String::from("Walls left ->"), |f, i| f + &format!(" Player {},", i) + &i.to_string()),
+    );
 }
 
 trait PID {

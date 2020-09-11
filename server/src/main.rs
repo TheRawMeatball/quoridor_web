@@ -101,7 +101,7 @@ async fn main() {
         .map(
             |name: String, lobbies: Lobbies, games: Games, socket: warp::ws::Ws| {
                 socket.on_upgrade(|socket| async move {
-                    let arc = Clone::clone(&lobbies); 
+                    let arc = Clone::clone(&lobbies);
                     let mut lobbies = lobbies.write().await;
                     let agent = lobbies.get_mut(&name).unwrap().0.pop().unwrap();
                     if lobbies.get(&name).unwrap().0.len() == 0 {
@@ -157,7 +157,7 @@ fn parse_lobby_request() -> impl Filter<Extract = ((QGameType, String),), Error 
 }
 
 trait WSHost {
-    fn host(self, socket: WebSocket, games: Games, lobbies: Lobbies ,name: String);
+    fn host(self, socket: WebSocket, games: Games, lobbies: Lobbies, name: String);
 }
 
 impl<G: Game> WSHost for AgentCore<G> {
