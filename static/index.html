@@ -8,9 +8,12 @@
             <label for="gtype">Game type:</label><br>
             <input type="text" id="gtype" name="game_type"><br>
             <label for="name">Lobby name:</label><br>
-            <input type="text" id="name" name="name""><br><br>
+            <input type="text" id="name" name="name"><br><br>
             <input type="submit" value="Submit">
-          </form> 
+        </form>
+        <ul id="list">
+
+        </ul>
     </body>
     <style type="text/css">
         body {
@@ -18,5 +21,18 @@
             background-color: #222;
         }
     </style>
+    <script>
+        let listHtml = document.getElementById("list");
+        fetch("/lobby/list")
+            .then(resp => resp.json()
+            .then(list => {
+                list.forEach(element => {
+                    let li = document.createElement("li");
+                    let text = document.createTextNode("Type: " + element.game_type + ", Name: " + element.name);
+                    li.appendChild(text);
+                    listHtml.appendChild(li);
+                });
+            }));
+    </script>
 </html>
 

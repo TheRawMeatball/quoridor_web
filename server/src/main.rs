@@ -101,6 +101,7 @@ async fn main() {
         .map(
             |name: String, lobbies: Lobbies, games: Games, socket: warp::ws::Ws| {
                 socket.on_upgrade(|socket| async move {
+                    let arc = Clone::clone(&lobbies); 
                     let mut lobbies = lobbies.write().await;
                     let agent = lobbies.get_mut(&name).unwrap().0.pop().unwrap();
                     if lobbies.get(&name).unwrap().0.len() == 0 {
@@ -111,8 +112,8 @@ async fn main() {
                         drop(lobbies);
                     }
                     match agent {
-                        QAgent::StandardQuoridor(c) => c.host(socket, games, name),
-                        QAgent::FreeQuoridor(c) => c.host(socket, games, name),
+                        QAgent::StandardQuoridor(c) => c.host(socket, games, arc, name),
+                        QAgent::FreeQuoridor(c) => c.host(socket, games, arc, name),
                     }
                 })
             },
@@ -156,11 +157,11 @@ fn parse_lobby_request() -> impl Filter<Extract = ((QGameType, String),), Error 
 }
 
 trait WSHost {
-    fn host(self, socket: WebSocket, games: Games, name: String);
+    fn host(self, socket: WebSocket, games: Games, lobbies: Lobbies ,name: String);
 }
 
 impl<G: Game> WSHost for AgentCore<G> {
-    fn host(self, socket: WebSocket, games: Games, name: String) {
+    fn host(self, socket: WebSocket, games: Games, lobbies: Lobbies, name: String) {
         let (wstx, mut wsrx) = socket.split();
 
         let (tx, rx) = mpsc::unbounded_channel();
@@ -182,6 +183,7 @@ impl<G: Game> WSHost for AgentCore<G> {
                             //let buf = bincode::serialize(&GameEvent::<G>::OpponentQuit).unwrap();
                             eprintln!("Someone quit!");
                             games.write().await.remove(&name);
+                            lobbies.write().await.remove(&name);
                             //quit_tx.send(Ok(Message::binary(buf))).unwrap();
                         }
                     }
